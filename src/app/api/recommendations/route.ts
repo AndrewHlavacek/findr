@@ -3,13 +3,20 @@ import { getSupabaseServerClient } from "@/lib/supabase/server";
 import { averageCentroid, pickFallback, rankBySimilarity, toVector, type TrackMeta } from "@/lib/recommend";
 
 async function getUserAccessToken() {
-	// Access tokens from Supabase cookies are set by the OAuth flow; expose via getSession
 	const supabase = getSupabaseServerClient();
 	const {
 		data: { session },
 	} = await supabase.auth.getSession();
 	return session?.provider_token || session?.access_token || null;
 }
+
+type SpotifyArtist = { name?: string };
+type SpotifyImage = { url?: string };
+type SpotifyTrackResponse = {
+	name?: string;
+	artists?: SpotifyArtist[];
+	album?: { images?: SpotifyImage[] };
+};
 
 async function fetchSpotifyMeta(spotifyId: string, token: string | null): Promise<Partial<TrackMeta>> {
 	if (!token) return {};
@@ -18,10 +25,10 @@ async function fetchSpotifyMeta(spotifyId: string, token: string | null): Promis
 			headers: { Authorization: `Bearer ${token}` },
 		});
 		if (!res.ok) return {};
-		const t = await res.json();
+		const t = (await res.json()) as SpotifyTrackResponse;
 		return {
 			name: t.name,
-			artist: t.artists?.map((a: any) => a.name).join(", ") ?? undefined,
+			artist: t.artists?.map((a) => a.name).filter(Boolean).join(", ") ?? undefined,
 			album_art: t.album?.images?.[0]?.url,
 		};
 	} catch {
@@ -36,20 +43,31 @@ async function fetchSpotifyAudioFeatures(spotifyId: string, token: string | null
 			headers: { Authorization: `Bearer ${token}` },
 		});
 		if (!res.ok) return null;
-		const f = await res.json();
+		const f = (await res.json()) as Record<string, unknown>;
 		return {
-			danceability: f.danceability,
-			energy: f.energy,
-			valence: f.valence,
-			tempo: f.tempo,
-			acousticness: f.acousticness,
-			instrumentalness: f.instrumentalness,
-			liveness: f.liveness,
-			speechiness: f.speechiness,
+			danceability: Number(f.danceability ?? NaN),
+			energy: Number(f.energy ?? NaN),
+			valence: Number(f.valence ?? NaN),
+			tempo: Number(f.tempo ?? NaN),
+			acousticness: Number(f.acousticness ?? NaN),
+			instrumentalness: Number(f.instrumentalness ?? NaN),
+			liveness: Number(f.liveness ?? NaN),
+			speechiness: Number(f.speechiness ?? NaN),
 		};
 	} catch {
 		return null;
 	}
+}
+
+type FeedbackRow = {
+	liked: boolean;
+	tracks: { spotify_id: string; metadata: unknown } | null;
+};
+
+type TrackRow = { id: string; spotify_id: string; metadata: unknown };
+
+function asTrackMeta(obj: unknown): Partial<TrackMeta> {
+	return obj && typeof obj === "object" ? (obj as Partial<TrackMeta>) : {};
 }
 
 export async function GET() {
@@ -57,43 +75,41 @@ export async function GET() {
 		const supabase = getSupabaseServerClient();
 		const token = await getUserAccessToken();
 
-		// Get current user
 		const {
 			data: { user },
 		} = await supabase.auth.getUser();
 		if (!user) return NextResponse.json({ tracks: [] });
 
-		// Fetch user feedback joined with minimal track info
-		const { data: feedbackRows } = await supabase
+		const { data: feedbackRowsRaw } = await supabase
 			.from("user_feedback")
 			.select("liked, tracks:track_id(spotify_id, metadata)")
 			.eq("user_id", user.id)
 			.order("timestamp", { ascending: false })
 			.limit(200);
+		const feedbackRows = (feedbackRowsRaw ?? []) as FeedbackRow[];
+
 		const likedVectors: number[][] = [];
 		const dislikedVectors: number[][] = [];
 
-		for (const row of feedbackRows || []) {
-			const tMeta = (row as any).tracks?.metadata || {};
+		for (const row of feedbackRows) {
+			const tMeta = asTrackMeta(row.tracks?.metadata);
 			const vec = toVector(tMeta.audio_features);
 			if (!vec) continue;
-			if ((row as any).liked) likedVectors.push(vec);
+			if (row.liked) likedVectors.push(vec);
 			else dislikedVectors.push(vec);
 		}
 
-		// Compute centroid; if none, fall back to recent liked tracks' metadata enrichment
-		let centroid = averageCentroid(likedVectors);
+		const centroid = averageCentroid(likedVectors);
 
-		// Candidate pool: tracks not rated by user. Keep a small sample for now for speed.
-		const { data: unrated } = await supabase
+		const { data: unratedRaw } = await supabase
 			.from("tracks")
 			.select("id, spotify_id, metadata")
 			.limit(200);
+		const unrated = (unratedRaw ?? []) as TrackRow[];
 
-		// Enrich missing metadata features where possible (best-effort)
 		const candidates: TrackMeta[] = [];
-		for (const t of unrated || []) {
-			let meta = (t.metadata as any) || {};
+		for (const t of unrated) {
+			let meta = asTrackMeta(t.metadata);
 			if (!meta.name || !meta.artist || !meta.album_art) {
 				meta = { ...meta, ...(await fetchSpotifyMeta(t.spotify_id, token)) };
 			}
@@ -118,7 +134,7 @@ export async function GET() {
 		}
 
 		return NextResponse.json({ tracks: ranked });
-	} catch (e) {
+	} catch {
 		return NextResponse.json({ error: "failed" }, { status: 500 });
 	}
 }
