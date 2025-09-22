@@ -59,15 +59,23 @@ async function fetchSpotifyAudioFeatures(spotifyId: string, token: string | null
 	}
 }
 
+type TrackRel = { spotify_id: string; metadata: unknown };
+
 type FeedbackRow = {
 	liked: boolean;
-	tracks: { spotify_id: string; metadata: unknown } | null;
+	tracks: TrackRel | TrackRel[] | null;
 };
 
 type TrackRow = { id: string; spotify_id: string; metadata: unknown };
 
 function asTrackMeta(obj: unknown): Partial<TrackMeta> {
 	return obj && typeof obj === "object" ? (obj as Partial<TrackMeta>) : {};
+}
+
+function normalizeTrackRel(rel: FeedbackRow["tracks"]): TrackRel | null {
+	if (!rel) return null;
+	if (Array.isArray(rel)) return rel[0] ?? null;
+	return rel;
 }
 
 export async function GET() {
@@ -86,13 +94,14 @@ export async function GET() {
 			.eq("user_id", user.id)
 			.order("timestamp", { ascending: false })
 			.limit(200);
-		const feedbackRows = (feedbackRowsRaw ?? []) as FeedbackRow[];
+		const feedbackRows = (feedbackRowsRaw as unknown as FeedbackRow[]) ?? [];
 
 		const likedVectors: number[][] = [];
 		const dislikedVectors: number[][] = [];
 
 		for (const row of feedbackRows) {
-			const tMeta = asTrackMeta(row.tracks?.metadata);
+			const tRel = normalizeTrackRel(row.tracks);
+			const tMeta = asTrackMeta(tRel?.metadata);
 			const vec = toVector(tMeta.audio_features);
 			if (!vec) continue;
 			if (row.liked) likedVectors.push(vec);
