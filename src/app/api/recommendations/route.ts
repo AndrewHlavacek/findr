@@ -3,7 +3,7 @@ import { getSupabaseServerClient } from "@/lib/supabase/server";
 import { averageCentroid, pickFallback, rankBySimilarity, toVector, type TrackMeta } from "@/lib/recommend";
 
 async function getUserAccessToken() {
-	const supabase = getSupabaseServerClient();
+	const supabase = await getSupabaseServerClient();
 	const {
 		data: { session },
 	} = await supabase.auth.getSession();
@@ -72,7 +72,7 @@ function asTrackMeta(obj: unknown): Partial<TrackMeta> {
 
 export async function GET() {
 	try {
-		const supabase = getSupabaseServerClient();
+		const supabase = await getSupabaseServerClient();
 		const token = await getUserAccessToken();
 
 		const {

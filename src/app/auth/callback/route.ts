@@ -6,7 +6,7 @@ export async function GET(request: Request) {
 	const code = url.searchParams.get("code");
 	const redirectTo = "/dashboard";
 	if (code) {
-		const supabase = getSupabaseServerClient();
+		const supabase = await getSupabaseServerClient();
 		await supabase.auth.exchangeCodeForSession(code);
 	}
 	return NextResponse.redirect(new URL(redirectTo, process.env.NEXT_PUBLIC_APP_URL));

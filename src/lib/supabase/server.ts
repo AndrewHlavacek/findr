@@ -3,7 +3,7 @@ import { createServerClient } from "@supabase/ssr";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { env } from "@/lib/env";
 
-export function getSupabaseServerClient(): SupabaseClient {
+export async function getSupabaseServerClient(): Promise<SupabaseClient> {
 	const cookieStore = cookies();
 	if (!env.supabaseUrl || !env.supabaseAnonKey) {
 		throw new Error("Missing Supabase env vars");

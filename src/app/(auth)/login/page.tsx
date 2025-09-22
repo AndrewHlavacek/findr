@@ -4,7 +4,7 @@ import { redirect } from "next/navigation";
 import { getSupabaseServerClient } from "@/lib/supabase/server";
 
 export default async function LoginPage() {
-	const supabase = getSupabaseServerClient();
+	const supabase = await getSupabaseServerClient();
 	const {
 		data: { session },
 	} = await supabase.auth.getSession();
@@ -14,7 +14,7 @@ export default async function LoginPage() {
 
 	async function signInWithSpotify() {
 		"use server";
-		const supabase = getSupabaseServerClient();
+		const supabase = await getSupabaseServerClient();
 		const { data, error } = await supabase.auth.signInWithOAuth({
 			provider: "spotify",
 			options: {

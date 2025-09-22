@@ -8,7 +8,7 @@ export async function POST(request: Request) {
 		if (!trackSpotifyId || typeof liked !== "boolean") {
 			return NextResponse.json({ error: "invalid" }, { status: 400 });
 		}
-		const supabase = getSupabaseServerClient();
+		const supabase = await getSupabaseServerClient();
 		const {
 			data: { user },
 		} = await supabase.auth.getUser();
@@ -37,7 +37,7 @@ export async function POST(request: Request) {
 		});
 		if (error) throw error;
 		return NextResponse.json({ ok: true });
-	} catch (e) {
+	} catch {
 		return NextResponse.json({ error: "failed" }, { status: 500 });
 	}
 }
